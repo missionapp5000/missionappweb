@@ -1,0 +1,26 @@
+{
+  "name": "cloudstream-web",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  
+    "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon server.js"
+    
+  },
+  
+
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.13.2",
+    "cheerio": "^1.1.2",
+    "express": "^5.1.0",
+    "express-session": "^1.18.2"
+  }
+}

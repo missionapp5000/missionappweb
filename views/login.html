@@ -1,0 +1,71 @@
+<section class="auth-box">
+  <h1>Login</h1>
+  <form method="POST" action="/login">
+    <label>
+      Username
+      <input type="text" name="username" required />
+    </label>
+    <label>
+      Password
+      <input type="password" name="password" required />
+    </label>
+    <button type="submit">Login</button>
+  </form>
+
+  <div style="margin-top:16px; text-align:center;">
+    <p>Don't have an account?</p>
+    <a class="secondary-btn" href="/register">
+      Register
+    </a>
+  </div>
+
+  <p style="margin-top:16px; font-size: 13px; opacity: 0.8;">
+    Use the same account you use on
+    <a href="https://netleak.nl/app" target="_blank">netleak.nl/app</a>.
+  </p>
+</section>
+
+
+<script>
+(function () {
+  function createUuid() {
+    if (window.crypto && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    // fallback
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  function getDeviceId() {
+    try {
+      let id = localStorage.getItem('netleaks_device_id');
+      if (!id) {
+        id = 'web-' + createUuid();
+        localStorage.setItem('netleaks_device_id', id);
+      }
+      return id;
+    } catch (e) {
+      // if localStorage not available, fall back to random per-login
+      return 'web-' + createUuid();
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    const form = document.querySelector('form[action="/login"]');
+    if (!form) return;
+
+    let hidden = form.querySelector('input[name="device_id"]');
+    if (!hidden) {
+      hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'device_id';
+      form.appendChild(hidden);
+    }
+    hidden.value = getDeviceId();
+  });
+})();
+</script>

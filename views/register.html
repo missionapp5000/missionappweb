@@ -1,0 +1,31 @@
+<section class="auth-box">
+  <h1>Create Account</h1>
+
+  <p class="notice" id="register-notice">
+    {{REGISTER_MESSAGE}}
+  </p>
+
+  <form method="POST" action="/register">
+    <label>
+      Username
+      <input type="text" name="username" required />
+    </label>
+    <label>
+      Email
+      <input type="email" name="email" required />
+    </label>
+    <label>
+      Password
+      <input type="password" name="password" required />
+    </label>
+    <label>
+      Phone (with country code, e.g. +91XXXXXXXXXX)
+      <input type="text" name="phone" required />
+    </label>
+    <button type="submit">Register</button>
+  </form>
+
+  <p style="margin-top:16px;">
+    Already have an account? <a href="/login">Login here</a>
+  </p>
+</section>

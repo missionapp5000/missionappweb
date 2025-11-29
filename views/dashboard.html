@@ -1,0 +1,293 @@
+<section>
+  <h1>Welcome, {{USERNAME}}</h1>
+  <p>Pick something to watch:</p>
+
+  <div id="home-sections"></div>
+
+  <div id="player-panel">
+    <div id="player-info">
+      <h2 id="player-title">Nothing playing</h2>
+      <p id="player-meta"></p>
+
+      <!-- Episode selector -->
+      <div id="episode-list"></div>
+
+      <!-- Streams for current episode/movie -->
+      <div id="stream-list"></div>
+    </div>
+    <video id="video-player" controls playsinline></video>
+  </div>
+</section>
+
+<!-- HLS.js for m3u8 playback -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script>
+(function () {
+  async function fetchJson(url, options) {
+    const res = await fetch(url, options || {});
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  }
+
+  function createSectionElement(section) {
+    const sectionEl = document.createElement("div");
+    sectionEl.className = "home-section";
+
+    const titleEl = document.createElement("h2");
+    titleEl.textContent = section.title;
+    sectionEl.appendChild(titleEl);
+
+    const rowEl = document.createElement("div");
+    rowEl.className = "card-row";
+
+    (section.items || []).forEach(item => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.dataset.providerId = item.providerId;
+      card.dataset.itemId = item.id;
+
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.src = item.poster || "";
+      img.alt = item.title || "";
+      card.appendChild(img);
+
+      const caption = document.createElement("div");
+      caption.className = "card-caption";
+      caption.textContent = item.title || "Untitled";
+      card.appendChild(caption);
+
+      card.addEventListener("click", () => {
+        openItem(item.providerId, item.id, item.title || "Untitled");
+      });
+
+      rowEl.appendChild(card);
+    });
+
+    sectionEl.appendChild(rowEl);
+    return sectionEl;
+  }
+
+  async function loadHome() {
+    const container = document.getElementById("home-sections");
+    container.textContent = "Loading home…";
+
+    try {
+      const data = await fetchJson("/api/home");
+      container.textContent = "";
+      (data.sections || []).forEach(section => {
+        const sectionEl = createSectionElement(section);
+        container.appendChild(sectionEl);
+      });
+
+      if (!data.sections || data.sections.length === 0) {
+        container.textContent = "No content available.";
+      }
+    } catch (e) {
+      console.error(e);
+      container.textContent = "Failed to load home.";
+    }
+  }
+
+  function resetPlayerUi() {
+    const playerTitle = document.getElementById("player-title");
+    const playerMeta = document.getElementById("player-meta");
+    const streamList = document.getElementById("stream-list");
+    const episodeList = document.getElementById("episode-list");
+    const video = document.getElementById("video-player");
+
+    playerTitle.textContent = "Loading…";
+    playerMeta.textContent = "";
+    streamList.textContent = "";
+    if (episodeList) episodeList.textContent = "";
+    video.removeAttribute("src");
+
+    if (window.hlsInstance) {
+      window.hlsInstance.destroy();
+      window.hlsInstance = null;
+    }
+  }
+
+  async function openItem(providerId, id, fallbackTitle) {
+    resetPlayerUi();
+
+    const playerTitle = document.getElementById("player-title");
+    const playerMeta = document.getElementById("player-meta");
+    const episodeList = document.getElementById("episode-list") || createEpisodeListContainer();
+
+    let meta;
+    try {
+      // 1) Load metadata from Node (mirrors NetflixProvider.load)
+      meta = await fetchJson(
+        `/api/meta/${encodeURIComponent(providerId)}/${encodeURIComponent(id)}`
+      );
+    } catch (e) {
+      console.error(e);
+      playerTitle.textContent = "Failed to load item";
+      playerMeta.textContent = e.message || "Error";
+      const streamList = document.getElementById("stream-list");
+      if (streamList) {
+        streamList.textContent = "Error loading streams.";
+      }
+      return;
+    }
+
+    const title = meta.title || fallbackTitle || "Unknown title";
+    playerTitle.textContent = title;
+
+    const year = meta.year ? ` (${meta.year})` : "";
+    const tags = (meta.tags || []).join(", ");
+    const desc = meta.description || "";
+    playerMeta.textContent = desc + year + (tags ? " • " + tags : "");
+
+    const episodes = Array.isArray(meta.episodes) ? meta.episodes : [];
+
+    // SERIES / MOVIE-WITH-EPISODE-WRAPPER
+    if (episodes.length > 0) {
+      episodeList.textContent = "";
+
+      episodes.forEach((ep, index) => {
+        const btn = document.createElement("button");
+        btn.className = "episode-btn";
+
+        const parts = [];
+        if (ep.season != null) parts.push("S" + ep.season);
+        if (ep.episode != null) parts.push("E" + ep.episode);
+        let label = parts.join("");
+
+        if (ep.title) {
+          if (label) label += " - " + ep.title;
+          else label = ep.title;
+        }
+        if (!label) label = "Episode " + (index + 1);
+
+        btn.textContent = label;
+
+        btn.addEventListener("click", () => {
+          // highlight selected episode
+          Array.from(
+            episodeList.querySelectorAll(".episode-btn")
+          ).forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+
+          const playTitle =
+            ep.title || meta.title || fallbackTitle || "Unknown title";
+
+          // ✅ Use *episode* id here – this is the big difference
+          loadStreamsForId(providerId, ep.id, playTitle);
+        });
+
+        episodeList.appendChild(btn);
+
+        if (index === 0) {
+          btn.classList.add("active");
+        }
+      });
+
+      // Auto-load first episode
+      const firstEp = episodes[0];
+      const firstTitle =
+        firstEp.title || meta.title || fallbackTitle || "Unknown title";
+      loadStreamsForId(providerId, firstEp.id, firstTitle);
+    } else {
+      // PURE MOVIE (no episodes array)
+      const playTitle = meta.title || fallbackTitle || "Unknown title";
+      // ✅ Use main movie id here
+      loadStreamsForId(providerId, id, playTitle);
+    }
+  }
+
+  function createEpisodeListContainer() {
+    const info = document.getElementById("player-info");
+    const div = document.createElement("div");
+    div.id = "episode-list";
+    info.insertBefore(div, document.getElementById("stream-list"));
+    return div;
+  }
+
+  async function loadStreamsForId(providerId, itemId, title) {
+    const streamList = document.getElementById("stream-list");
+    const video = document.getElementById("video-player");
+
+    streamList.textContent = "Loading sources…";
+
+    if (window.hlsInstance) {
+      window.hlsInstance.destroy();
+      window.hlsInstance = null;
+    }
+    video.removeAttribute("src");
+
+    try {
+      // This mirrors LoadData(title, id) used by Kotlin
+      const body = JSON.stringify({
+        title: title || "",
+      });
+
+      const streamsData = await fetchJson(
+        `/api/streams/${encodeURIComponent(providerId)}/${encodeURIComponent(
+          itemId
+        )}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }
+      );
+
+      const streams = streamsData.streams || [];
+      if (streams.length === 0) {
+        streamList.textContent = "No streams found.";
+        return;
+      }
+
+      streamList.textContent = "";
+      streams.forEach((s, index) => {
+        const btn = document.createElement("button");
+        btn.className = "stream-btn";
+        const label = `${s.name || "Source"}${
+          s.quality ? " (" + s.quality + "p)" : ""
+        }`;
+        btn.textContent = label;
+
+        btn.addEventListener("click", () => {
+          playStream(s);
+        });
+
+        streamList.appendChild(btn);
+
+        if (index === 0) {
+          playStream(s);
+        }
+      });
+    } catch (e) {
+      console.error(e);
+      streamList.textContent = "Error loading streams.";
+    }
+  }
+
+  function playStream(stream) {
+    const video = document.getElementById("video-player");
+
+    if (window.hlsInstance) {
+      window.hlsInstance.destroy();
+      window.hlsInstance = null;
+    }
+
+    if (stream.isM3u8 && window.Hls && Hls.isSupported()) {
+      const hls = new Hls();
+      window.hlsInstance = hls;
+      hls.loadSource(stream.url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function () {
+        video.play();
+      });
+    } else {
+      video.src = stream.url;
+      video.play();
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", loadHome);
+})();
+</script>
+
